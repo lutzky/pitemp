@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -21,10 +22,12 @@ var (
 	backlightOff = flag.Bool("backlight_off_when_done", true, "Turn backlight off when done")
 	delay        = flag.Duration("delay", 0, "Automatically quit after delay")
 
+	dhtDelay   = flag.Duration("dht11_delay", time.Minute, "Frequency of DHT11 measurement")
 	dhtPin     = flag.Int("dht11_pin", 4, "GPIO pin to which DHT11 data pin is connected")
 	dhtRetries = flag.Int("dht11_retries", 10, "Retries for DHT11")
 
 	lcdDegreeSymbol = flag.Int("lcd_degree_symbol", LCDDegreeSymbol, "Character code for degree symbol for LCD")
+	lcdRefreshDelay = flag.Duration("lcd_refresh_delay", 2*time.Second, "How often to refresh LCD display")
 )
 
 // LCDDegreeSymbol is the character code used for displaying the degrees
@@ -51,6 +54,12 @@ func getIP(iface string) (string, error) {
 	return "", fmt.Errorf("interface %q not found", iface)
 }
 
+var state = struct {
+	temperature, humidity float32
+	ip                    string
+	lastSensorUpdate      time.Time
+}{}
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	flag.Parse()
@@ -73,7 +82,11 @@ func main() {
 	err = lcd.BacklightOn()
 	check(err)
 
-	ticker := time.NewTicker(time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go dhtUpdater(ctx)
+
+	ticker := time.NewTicker(*lcdRefreshDelay)
 	defer ticker.Stop()
 	done := make(chan bool)
 	if *delay > 0 {
@@ -90,8 +103,10 @@ MainLoop:
 	for {
 		select {
 		case <-done:
+			cancel()
 			break MainLoop
 		case <-interrupted:
+			cancel()
 			break MainLoop
 		case <-ticker.C:
 			update(lcd)
@@ -106,6 +121,8 @@ MainLoop:
 
 func update(lcd *device.Lcd) {
 	var err error
+
+	// TODO: Show last temperature update time
 
 	err = lcd.ShowMessage(*message, device.SHOW_LINE_1)
 	if err != nil {
@@ -122,13 +139,12 @@ func update(lcd *device.Lcd) {
 		log.Printf("Failed to show IP Address: %v\n", err)
 	}
 
-	temperature, humidity, retried, err := dht.ReadDHTxxWithRetry(dht.DHT11, *dhtPin, false, *dhtRetries)
-	if err != nil {
-		log.Printf("Failed to read DHT11: %v", err)
+	dhtMessage := "[waiting for dht11]"
+	if !state.lastSensorUpdate.IsZero() {
+		dhtMessage = fmt.Sprintf("%2.1f%cC, %3.0f%% humid ",
+			state.temperature, *lcdDegreeSymbol, state.humidity)
 	}
-
-	tempMessage := fmt.Sprintf("%2.1f%cC, %3.0f%%h [R:%d]", temperature, *lcdDegreeSymbol, humidity, retried)
-	err = lcd.ShowMessage(tempMessage, device.SHOW_LINE_3)
+	err = lcd.ShowMessage(dhtMessage, device.SHOW_LINE_3)
 	if err != nil {
 		log.Printf("Failed to show temperature: %v\n", err)
 	}
@@ -137,5 +153,26 @@ func update(lcd *device.Lcd) {
 	err = lcd.ShowMessage(timeMessage, device.SHOW_LINE_4)
 	if err != nil {
 		log.Printf("Failed to show time: %v\n", err)
+	}
+}
+
+func dhtUpdater(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		temperature, humidity, _, err := dht.ReadDHTxxWithRetry(dht.DHT11, *dhtPin, false, *dhtRetries)
+		if err != nil {
+			log.Printf("Failed to read DHT11: %v", err)
+		} else {
+			state.temperature = temperature
+			state.humidity = humidity
+			state.lastSensorUpdate = time.Now()
+		}
+
+		time.Sleep(*dhtDelay)
 	}
 }
