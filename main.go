@@ -23,7 +23,13 @@ var (
 
 	dhtPin     = flag.Int("dht11_pin", 4, "GPIO pin to which DHT11 data pin is connected")
 	dhtRetries = flag.Int("dht11_retries", 10, "Retries for DHT11")
+
+	lcdDegreeSymbol = flag.Int("lcd_degree_symbol", LCDDegreeSymbol, "Character code for degree symbol for LCD")
 )
+
+// LCDDegreeSymbol is the character code used for displaying the degrees
+// symbol (normally "°"). We're using the Japanese handakuten (゜).
+const LCDDegreeSymbol = 0xdf
 
 func getIP(iface string) (string, error) {
 	ifaces, err := net.Interfaces()
@@ -121,7 +127,7 @@ func update(lcd *device.Lcd) {
 		log.Printf("Failed to read DHT11: %v", err)
 	}
 
-	tempMessage := fmt.Sprintf("%2.1f*C, %3.0f%%h [R:%d]", temperature, humidity, retried)
+	tempMessage := fmt.Sprintf("%2.1f%cC, %3.0f%%h [R:%d]", temperature, *lcdDegreeSymbol, humidity, retried)
 	err = lcd.ShowMessage(tempMessage, device.SHOW_LINE_3)
 	if err != nil {
 		log.Printf("Failed to show temperature: %v\n", err)
