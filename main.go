@@ -122,7 +122,10 @@ MainLoop:
 func update(lcd *device.Lcd) {
 	var err error
 
-	// TODO: Show last temperature update time
+	if !state.lastSensorUpdate.IsZero() {
+		*message = fmt.Sprintf("Freshness: %s             ",
+			time.Now().Sub(state.lastSensorUpdate).Round(time.Second))
+	}
 
 	err = lcd.ShowMessage(*message, device.SHOW_LINE_1)
 	if err != nil {
