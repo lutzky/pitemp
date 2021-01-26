@@ -4,8 +4,10 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"html/template"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"time"
@@ -28,6 +30,8 @@ var (
 
 	lcdDegreeSymbol = flag.Int("lcd_degree_symbol", LCDDegreeSymbol, "Character code for degree symbol for LCD")
 	lcdRefreshDelay = flag.Duration("lcd_refresh_delay", 2*time.Second, "How often to refresh LCD display")
+
+	flagPort = flag.Int("port", 8080, "HTTP listening port")
 )
 
 // LCDDegreeSymbol is the character code used for displaying the degrees
@@ -55,16 +59,43 @@ func getIP(iface string) (string, error) {
 }
 
 var state = struct {
-	temperature, humidity float32
-	ip                    string
-	lastSensorUpdate      time.Time
+	Temperature, Humidity float32
+	IP                    string
+	LastSensorUpdate      time.Time
 }{}
+
+// TODO(lutzky): Once go1.16 is out, use embed package instead
+const httpTemplateText = `
+<html>
+<head>
+<title>PiTemp</title>
+</head>
+<body>
+<h1>PiTemp</h1>
+<p>IP address: {{.IP}}</p>
+<p>{{.Temperature}}&deg;, {{.Humidity}}&percnt; humidity</p>
+<p>Sensor last updated {{.LastSensorUpdate}}</p>
+</body>
+</html>
+`
+
+var httpTemplate = template.Must(template.New("root").Parse(httpTemplateText))
+
+func serveHTTP(w http.ResponseWriter, r *http.Request) {
+	err := httpTemplate.Execute(w, state)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	flag.Parse()
 	logger.ChangePackageLogLevel("i2c", logger.InfoLevel)
 	logger.ChangePackageLogLevel("dht", logger.InfoLevel)
+
+	http.HandleFunc("/", serveHTTP)
+	go http.ListenAndServe(fmt.Sprintf(":%d", *flagPort), nil)
 
 	check := func(err error) {
 		if err != nil {
@@ -122,9 +153,9 @@ MainLoop:
 func update(lcd *device.Lcd) {
 	var err error
 
-	if !state.lastSensorUpdate.IsZero() {
+	if !state.LastSensorUpdate.IsZero() {
 		*message = fmt.Sprintf("Freshness: %s             ",
-			time.Now().Sub(state.lastSensorUpdate).Round(time.Second))
+			time.Now().Sub(state.LastSensorUpdate).Round(time.Second))
 	}
 
 	err = lcd.ShowMessage(*message, device.SHOW_LINE_1)
@@ -143,9 +174,9 @@ func update(lcd *device.Lcd) {
 	}
 
 	dhtMessage := "[waiting for dht11]"
-	if !state.lastSensorUpdate.IsZero() {
+	if !state.LastSensorUpdate.IsZero() {
 		dhtMessage = fmt.Sprintf("%2.1f%cC, %3.0f%% humid ",
-			state.temperature, *lcdDegreeSymbol, state.humidity)
+			state.Temperature, *lcdDegreeSymbol, state.Humidity)
 	}
 	err = lcd.ShowMessage(dhtMessage, device.SHOW_LINE_3)
 	if err != nil {
@@ -171,9 +202,9 @@ func dhtUpdater(ctx context.Context) {
 		if err != nil {
 			log.Printf("Failed to read DHT11: %v", err)
 		} else {
-			state.temperature = temperature
-			state.humidity = humidity
-			state.lastSensorUpdate = time.Now()
+			state.Temperature = temperature
+			state.Humidity = humidity
+			state.LastSensorUpdate = time.Now()
 		}
 
 		time.Sleep(*dhtDelay)
