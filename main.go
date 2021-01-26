@@ -16,6 +16,8 @@ import (
 	device "github.com/d2r2/go-hd44780"
 	"github.com/d2r2/go-i2c"
 	"github.com/d2r2/go-logger"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (
@@ -64,6 +66,27 @@ var state = struct {
 	LastSensorUpdate      time.Time
 }{}
 
+var (
+	tempGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "pitemp_temperature_celsius",
+		Help: "Current temperature as measured by DHT11",
+	})
+	humidityGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "pitemp_humidity_percent",
+		Help: "Current humidity as measured by DHT11",
+	})
+	lastUpdateGauge = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "pitemp_last_update",
+		Help: "Last update time from DHT11",
+	})
+)
+
+func init() {
+	prometheus.MustRegister(tempGauge)
+	prometheus.MustRegister(humidityGauge)
+	prometheus.MustRegister(lastUpdateGauge)
+}
+
 // TODO(lutzky): Once go1.16 is out, use embed package instead
 const httpTemplateText = `
 <html>
@@ -95,6 +118,7 @@ func main() {
 	logger.ChangePackageLogLevel("dht", logger.InfoLevel)
 
 	http.HandleFunc("/", serveHTTP)
+	http.Handle("/metrics", promhttp.Handler())
 	go http.ListenAndServe(fmt.Sprintf(":%d", *flagPort), nil)
 
 	check := func(err error) {
@@ -205,6 +229,10 @@ func dhtUpdater(ctx context.Context) {
 			state.Temperature = temperature
 			state.Humidity = humidity
 			state.LastSensorUpdate = time.Now()
+
+			tempGauge.Set(float64(temperature))
+			humidityGauge.Set(float64(humidity))
+			lastUpdateGauge.Set(float64(time.Now().Unix()))
 		}
 
 		time.Sleep(*dhtDelay)

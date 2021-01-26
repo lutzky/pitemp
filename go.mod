@@ -10,4 +10,5 @@ require (
 	github.com/d2r2/go-shell v0.0.0-20191113051817-7664ea33645f // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7 // indirect
+	github.com/prometheus/client_golang v1.9.0
 )
