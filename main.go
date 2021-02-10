@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/d2r2/go-dht"
@@ -152,7 +153,7 @@ func main() {
 	}
 
 	interrupted := make(chan os.Signal, 1)
-	signal.Notify(interrupted, os.Interrupt)
+	signal.Notify(interrupted, syscall.SIGTERM, syscall.SIGINT)
 
 MainLoop:
 	for {
