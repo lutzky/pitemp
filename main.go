@@ -179,11 +179,11 @@ func update(lcd *device.Lcd) {
 	var err error
 
 	if !state.LastSensorUpdate.IsZero() {
-		*message = fmt.Sprintf("Freshness: %s             ",
+		*message = fmt.Sprintf("Freshness: %s",
 			time.Now().Sub(state.LastSensorUpdate).Round(time.Second))
 	}
 
-	err = lcd.ShowMessage(*message, device.SHOW_LINE_1)
+	err = lcd.ShowMessage(*message, device.SHOW_LINE_1|device.SHOW_BLANK_PADDING)
 	if err != nil {
 		log.Printf("Failed to show message: %v\n", err)
 	}
@@ -193,23 +193,23 @@ func update(lcd *device.Lcd) {
 		ipaddr = err.Error()
 	}
 
-	err = lcd.ShowMessage(ipaddr, device.SHOW_LINE_2)
+	err = lcd.ShowMessage(ipaddr, device.SHOW_LINE_2|device.SHOW_BLANK_PADDING)
 	if err != nil {
 		log.Printf("Failed to show IP Address: %v\n", err)
 	}
 
 	dhtMessage := "[waiting for dht11]"
 	if !state.LastSensorUpdate.IsZero() {
-		dhtMessage = fmt.Sprintf("%2.1f%cC, %3.0f%% humid ",
+		dhtMessage = fmt.Sprintf("%.0f%cC, %.0f%% humid",
 			state.Temperature, *lcdDegreeSymbol, state.Humidity)
 	}
-	err = lcd.ShowMessage(dhtMessage, device.SHOW_LINE_3)
+	err = lcd.ShowMessage(dhtMessage, device.SHOW_LINE_3|device.SHOW_BLANK_PADDING)
 	if err != nil {
 		log.Printf("Failed to show temperature: %v\n", err)
 	}
 
 	timeMessage := time.Now().Local().Format("Mon Jan 2 15:04:05")
-	err = lcd.ShowMessage(timeMessage, device.SHOW_LINE_4)
+	err = lcd.ShowMessage(timeMessage, device.SHOW_LINE_4|device.SHOW_BLANK_PADDING)
 	if err != nil {
 		log.Printf("Failed to show time: %v\n", err)
 	}
