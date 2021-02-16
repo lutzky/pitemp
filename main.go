@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"flag"
 	"fmt"
 	"html/template"
@@ -88,20 +89,8 @@ func init() {
 	prometheus.MustRegister(lastUpdateGauge)
 }
 
-// TODO(lutzky): Once go1.16 is out, use embed package instead
-const httpTemplateText = `
-<html>
-<head>
-<title>PiTemp</title>
-</head>
-<body>
-<h1>PiTemp</h1>
-<p>IP address: {{.IP}}</p>
-<p>{{.Temperature}}&deg;, {{.Humidity}}&percnt; humidity</p>
-<p>Sensor last updated {{.LastSensorUpdate}}</p>
-</body>
-</html>
-`
+//go:embed template.html
+var httpTemplateText string
 
 var httpTemplate = template.Must(template.New("root").Parse(httpTemplateText))
 
