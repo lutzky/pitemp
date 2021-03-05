@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/d2r2/go-dht"
-	device "github.com/d2r2/go-hd44780"
+	"github.com/d2r2/go-hd44780"
 	"github.com/d2r2/go-i2c"
 	"github.com/d2r2/go-logger"
 	"github.com/prometheus/client_golang/prometheus"
@@ -32,6 +32,7 @@ var (
 	dhtPin     = flag.Int("dht11_pin", 4, "GPIO pin to which DHT11 data pin is connected")
 	dhtRetries = flag.Int("dht11_retries", 10, "Retries for DHT11")
 
+	useLCD          = flag.Bool("lcd_enabled", false, "Whether or not to use an HD44780 LCD")
 	lcdDegreeSymbol = flag.Int("lcd_degree_symbol", LCDDegreeSymbol, "Character code for degree symbol for LCD")
 	lcdRefreshDelay = flag.Duration("lcd_refresh_delay", 2*time.Second, "How often to refresh LCD display")
 
@@ -117,15 +118,19 @@ func main() {
 		}
 	}
 
-	i2c, err := i2c.NewI2C(0x27, 1)
-	check(err)
-	defer i2c.Close()
+	var lcd *hd44780.Lcd
 
-	lcd, err := device.NewLcd(i2c, device.LCD_20x4)
-	check(err)
+	if *useLCD {
+		i2c, err := i2c.NewI2C(0x27, 1)
+		check(err)
+		defer i2c.Close()
 
-	err = lcd.BacklightOn()
-	check(err)
+		lcd, err = hd44780.NewLcd(i2c, hd44780.LCD_20x4)
+		check(err)
+
+		err = lcd.BacklightOn()
+		check(err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -154,17 +159,21 @@ MainLoop:
 			cancel()
 			break MainLoop
 		case <-ticker.C:
-			update(lcd)
+			updateLCD(lcd)
 		}
 	}
 
-	if *backlightOff {
-		err = lcd.BacklightOff()
+	if *useLCD && *backlightOff {
+		err := lcd.BacklightOff()
 		check(err)
 	}
 }
 
-func update(lcd *device.Lcd) {
+func updateLCD(lcd *hd44780.Lcd) {
+	if lcd == nil {
+		return
+	}
+
 	var err error
 
 	if !state.LastSensorUpdate.IsZero() {
@@ -172,7 +181,7 @@ func update(lcd *device.Lcd) {
 			time.Now().Sub(state.LastSensorUpdate).Round(time.Second))
 	}
 
-	err = lcd.ShowMessage(*message, device.SHOW_LINE_1|device.SHOW_BLANK_PADDING)
+	err = lcd.ShowMessage(*message, hd44780.SHOW_LINE_1|hd44780.SHOW_BLANK_PADDING)
 	if err != nil {
 		log.Printf("Failed to show message: %v\n", err)
 	}
@@ -182,7 +191,7 @@ func update(lcd *device.Lcd) {
 		ipaddr = err.Error()
 	}
 
-	err = lcd.ShowMessage(ipaddr, device.SHOW_LINE_2|device.SHOW_BLANK_PADDING)
+	err = lcd.ShowMessage(ipaddr, hd44780.SHOW_LINE_2|hd44780.SHOW_BLANK_PADDING)
 	if err != nil {
 		log.Printf("Failed to show IP Address: %v\n", err)
 	}
@@ -192,13 +201,13 @@ func update(lcd *device.Lcd) {
 		dhtMessage = fmt.Sprintf("%.0f%cC, %.0f%% humid",
 			state.Temperature, *lcdDegreeSymbol, state.Humidity)
 	}
-	err = lcd.ShowMessage(dhtMessage, device.SHOW_LINE_3|device.SHOW_BLANK_PADDING)
+	err = lcd.ShowMessage(dhtMessage, hd44780.SHOW_LINE_3|hd44780.SHOW_BLANK_PADDING)
 	if err != nil {
 		log.Printf("Failed to show temperature: %v\n", err)
 	}
 
 	timeMessage := time.Now().Local().Format("Mon Jan 2 15:04:05")
-	err = lcd.ShowMessage(timeMessage, device.SHOW_LINE_4|device.SHOW_BLANK_PADDING)
+	err = lcd.ShowMessage(timeMessage, hd44780.SHOW_LINE_4|hd44780.SHOW_BLANK_PADDING)
 	if err != nil {
 		log.Printf("Failed to show time: %v\n", err)
 	}
