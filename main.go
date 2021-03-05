@@ -215,12 +215,6 @@ func updateLCD(lcd *hd44780.Lcd) {
 
 func dhtUpdater(ctx context.Context) {
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
 		temperature, humidity, _, err := dht.ReadDHTxxWithRetry(dht.DHT11, *dhtPin, false, *dhtRetries)
 		if err != nil {
 			log.Printf("Failed to read DHT11: %v", err)
@@ -234,6 +228,14 @@ func dhtUpdater(ctx context.Context) {
 			lastUpdateGauge.Set(float64(time.Now().Unix()))
 		}
 
-		time.Sleep(*dhtDelay)
+		{
+			t := time.NewTimer(*dhtDelay)
+			defer t.Stop()
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
+		}
 	}
 }
