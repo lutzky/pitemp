@@ -26,7 +26,7 @@ var (
 	ipIface      = flag.String("ip_iface", "wlan0", "Network interface for IP address")
 	message      = flag.String("message", "^_^ LCD ACTIVE ^_^", "Message to display")
 	backlightOff = flag.Bool("backlight_off_when_done", true, "Turn backlight off when done")
-	delay        = flag.Duration("delay", 0, "Automatically quit after delay")
+	quitAfter    = flag.Duration("quit_after", 0, "Automatically quit after this many seconds (0 for never)")
 
 	dhtDelay   = flag.Duration("dht11_delay", time.Minute, "Frequency of DHT11 measurement")
 	dhtPin     = flag.Int("dht11_pin", 4, "GPIO pin to which DHT11 data pin is connected")
@@ -134,33 +134,22 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	go dhtUpdater(ctx)
-
-	ticker := time.NewTicker(*lcdRefreshDelay)
-	defer ticker.Stop()
-	done := make(chan bool)
-	if *delay > 0 {
-		go func() {
-			time.Sleep(*delay)
-			done <- true
-		}()
-	}
-
 	interrupted := make(chan os.Signal, 1)
 	signal.Notify(interrupted, syscall.SIGTERM, syscall.SIGINT)
 
-MainLoop:
-	for {
-		select {
-		case <-done:
-			cancel()
-			break MainLoop
-		case <-interrupted:
-			cancel()
-			break MainLoop
-		case <-ticker.C:
-			updateLCD(lcd)
-		}
+	if *quitAfter > 0 {
+		go func() {
+			time.Sleep(*quitAfter)
+			interrupted <- syscall.SIGINT
+		}()
+	}
+
+	go dhtUpdater(ctx)
+	go lcdUpdater(ctx, lcd)
+
+	select {
+	case <-interrupted:
+		cancel()
 	}
 
 	if *useLCD && *backlightOff {
@@ -169,47 +158,59 @@ MainLoop:
 	}
 }
 
-func updateLCD(lcd *hd44780.Lcd) {
+func lcdUpdater(ctx context.Context, lcd *hd44780.Lcd) {
 	if lcd == nil {
 		return
 	}
 
-	var err error
+	for {
+		var err error
 
-	if !state.LastSensorUpdate.IsZero() {
-		*message = fmt.Sprintf("Freshness: %s",
-			time.Now().Sub(state.LastSensorUpdate).Round(time.Second))
-	}
+		if !state.LastSensorUpdate.IsZero() {
+			*message = fmt.Sprintf("Freshness: %s",
+				time.Now().Sub(state.LastSensorUpdate).Round(time.Second))
+		}
 
-	err = lcd.ShowMessage(*message, hd44780.SHOW_LINE_1|hd44780.SHOW_BLANK_PADDING)
-	if err != nil {
-		log.Printf("Failed to show message: %v\n", err)
-	}
+		err = lcd.ShowMessage(*message, hd44780.SHOW_LINE_1|hd44780.SHOW_BLANK_PADDING)
+		if err != nil {
+			log.Printf("Failed to show message: %v\n", err)
+		}
 
-	ipaddr, err := getIP(*ipIface)
-	if err != nil {
-		ipaddr = err.Error()
-	}
+		ipaddr, err := getIP(*ipIface)
+		if err != nil {
+			ipaddr = err.Error()
+		}
 
-	err = lcd.ShowMessage(ipaddr, hd44780.SHOW_LINE_2|hd44780.SHOW_BLANK_PADDING)
-	if err != nil {
-		log.Printf("Failed to show IP Address: %v\n", err)
-	}
+		err = lcd.ShowMessage(ipaddr, hd44780.SHOW_LINE_2|hd44780.SHOW_BLANK_PADDING)
+		if err != nil {
+			log.Printf("Failed to show IP Address: %v\n", err)
+		}
 
-	dhtMessage := "[waiting for dht11]"
-	if !state.LastSensorUpdate.IsZero() {
-		dhtMessage = fmt.Sprintf("%.0f%cC, %.0f%% humid",
-			state.Temperature, *lcdDegreeSymbol, state.Humidity)
-	}
-	err = lcd.ShowMessage(dhtMessage, hd44780.SHOW_LINE_3|hd44780.SHOW_BLANK_PADDING)
-	if err != nil {
-		log.Printf("Failed to show temperature: %v\n", err)
-	}
+		dhtMessage := "[waiting for dht11]"
+		if !state.LastSensorUpdate.IsZero() {
+			dhtMessage = fmt.Sprintf("%.0f%cC, %.0f%% humid",
+				state.Temperature, *lcdDegreeSymbol, state.Humidity)
+		}
+		err = lcd.ShowMessage(dhtMessage, hd44780.SHOW_LINE_3|hd44780.SHOW_BLANK_PADDING)
+		if err != nil {
+			log.Printf("Failed to show temperature: %v\n", err)
+		}
 
-	timeMessage := time.Now().Local().Format("Mon Jan 2 15:04:05")
-	err = lcd.ShowMessage(timeMessage, hd44780.SHOW_LINE_4|hd44780.SHOW_BLANK_PADDING)
-	if err != nil {
-		log.Printf("Failed to show time: %v\n", err)
+		timeMessage := time.Now().Local().Format("Mon Jan 2 15:04:05")
+		err = lcd.ShowMessage(timeMessage, hd44780.SHOW_LINE_4|hd44780.SHOW_BLANK_PADDING)
+		if err != nil {
+			log.Printf("Failed to show time: %v\n", err)
+		}
+
+		{
+			t := time.NewTimer(*lcdRefreshDelay)
+			defer t.Stop()
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
+		}
 	}
 }
 
