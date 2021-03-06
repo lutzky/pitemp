@@ -42,6 +42,9 @@ var (
 
 	// UpdateInterval controls how fast the display is updated
 	UpdateInterval = 500 * time.Millisecond
+
+	// StaleTime indicates how stale the state has to be for a warning to be shown
+	StaleTime = 3 * time.Minute
 )
 
 // Initialize initializes the pioled hardware
@@ -120,6 +123,10 @@ func render(dst draw.Image, color color.Color) {
 			// TODO: Use degree symbol °C,
 			fmt.Sprintf("Temp: %.0fC", s.Temperature),
 			fmt.Sprintf("Humid: %.0f%%", s.Humidity),
+		}
+
+		if time.Now().Sub(s.LastSensorUpdate) > StaleTime {
+			lines[0] += " STALE!"
 		}
 	}
 
