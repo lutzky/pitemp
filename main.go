@@ -15,11 +15,16 @@ import (
 	"time"
 
 	"github.com/d2r2/go-dht"
-	"github.com/d2r2/go-hd44780"
-	"github.com/d2r2/go-i2c"
 	"github.com/d2r2/go-logger"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/lutzky/pitemp/pioled"
+	"github.com/lutzky/pitemp/state"
+
+	// For HD44780 LCD
+	"github.com/d2r2/go-hd44780"
+	"github.com/d2r2/go-i2c"
 )
 
 var (
@@ -32,9 +37,12 @@ var (
 	dhtPin     = flag.Int("dht11_pin", 4, "GPIO pin to which DHT11 data pin is connected")
 	dhtRetries = flag.Int("dht11_retries", 10, "Retries for DHT11")
 
-	useLCD          = flag.Bool("lcd_enabled", false, "Whether or not to use an HD44780 LCD")
+	lcdEnabled      = flag.Bool("lcd_enabled", false, "Whether or not to use an HD44780 LCD")
 	lcdDegreeSymbol = flag.Int("lcd_degree_symbol", LCDDegreeSymbol, "Character code for degree symbol for LCD")
 	lcdRefreshDelay = flag.Duration("lcd_refresh_delay", 2*time.Second, "How often to refresh LCD display")
+
+	piOLEDEnabled      = flag.Bool("pioled_enabled", true, "Whether or not to use a PiOLED display")
+	piOLEDRefreshDelay = flag.Duration("pioled_refresh_delay", 500*time.Millisecond, "How often to refresh PiOLED Display")
 
 	flagPort = flag.Int("port", 8080, "HTTP listening port")
 )
@@ -63,12 +71,6 @@ func getIP(iface string) (string, error) {
 	return "", fmt.Errorf("interface %q not found", iface)
 }
 
-var state = struct {
-	Temperature, Humidity float32
-	IP                    string
-	LastSensorUpdate      time.Time
-}{}
-
 var (
 	tempGauge = prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "pitemp_temperature_celsius",
@@ -96,7 +98,7 @@ var httpTemplateText string
 var httpTemplate = template.Must(template.New("root").Parse(httpTemplateText))
 
 func serveHTTP(w http.ResponseWriter, r *http.Request) {
-	err := httpTemplate.Execute(w, state)
+	err := httpTemplate.Execute(w, state.Get())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
@@ -109,6 +111,7 @@ func main() {
 	logger.ChangePackageLogLevel("dht", logger.InfoLevel)
 
 	http.HandleFunc("/", serveHTTP)
+	http.HandleFunc("/pioled", pioled.HTTPResponse)
 	http.Handle("/metrics", promhttp.Handler())
 	go http.ListenAndServe(fmt.Sprintf(":%d", *flagPort), nil)
 
@@ -120,7 +123,7 @@ func main() {
 
 	var lcd *hd44780.Lcd
 
-	if *useLCD {
+	if *lcdEnabled {
 		i2c, err := i2c.NewI2C(0x27, 1)
 		check(err)
 		defer i2c.Close()
@@ -130,6 +133,10 @@ func main() {
 
 		err = lcd.BacklightOn()
 		check(err)
+	}
+
+	if *piOLEDEnabled {
+		pioled.Initialize()
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -146,13 +153,16 @@ func main() {
 
 	go dhtUpdater(ctx)
 	go lcdUpdater(ctx, lcd)
+	if *piOLEDEnabled {
+		go pioled.Updater(ctx, *piOLEDRefreshDelay)
+	}
 
 	select {
 	case <-interrupted:
 		cancel()
 	}
 
-	if *useLCD && *backlightOff {
+	if *lcdEnabled && *backlightOff {
 		err := lcd.BacklightOff()
 		check(err)
 	}
@@ -166,9 +176,11 @@ func lcdUpdater(ctx context.Context, lcd *hd44780.Lcd) {
 	for {
 		var err error
 
-		if !state.LastSensorUpdate.IsZero() {
+		s := state.Get()
+
+		if !s.LastSensorUpdate.IsZero() {
 			*message = fmt.Sprintf("Freshness: %s",
-				time.Now().Sub(state.LastSensorUpdate).Round(time.Second))
+				time.Now().Sub(s.LastSensorUpdate).Round(time.Second))
 		}
 
 		err = lcd.ShowMessage(*message, hd44780.SHOW_LINE_1|hd44780.SHOW_BLANK_PADDING)
@@ -187,9 +199,9 @@ func lcdUpdater(ctx context.Context, lcd *hd44780.Lcd) {
 		}
 
 		dhtMessage := "[waiting for dht11]"
-		if !state.LastSensorUpdate.IsZero() {
+		if !s.LastSensorUpdate.IsZero() {
 			dhtMessage = fmt.Sprintf("%.0f%cC, %.0f%% humid",
-				state.Temperature, *lcdDegreeSymbol, state.Humidity)
+				s.Temperature, *lcdDegreeSymbol, s.Humidity)
 		}
 		err = lcd.ShowMessage(dhtMessage, hd44780.SHOW_LINE_3|hd44780.SHOW_BLANK_PADDING)
 		if err != nil {
@@ -220,9 +232,11 @@ func dhtUpdater(ctx context.Context) {
 		if err != nil {
 			log.Printf("Failed to read DHT11: %v", err)
 		} else {
-			state.Temperature = temperature
-			state.Humidity = humidity
-			state.LastSensorUpdate = time.Now()
+			state.Set(&state.State{
+				Temperature:      temperature,
+				Humidity:         humidity,
+				LastSensorUpdate: time.Now(),
+			})
 
 			tempGauge.Set(float64(temperature))
 			humidityGauge.Set(float64(humidity))
