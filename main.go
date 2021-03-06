@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -106,18 +107,31 @@ func main() {
 		}()
 	}
 
-	go dhtUpdater(ctx)
+	var wg sync.WaitGroup
+
+	waitGroupGo := func(f func()) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			f()
+		}()
+	}
+
+	waitGroupGo(func() { dhtUpdater(ctx) })
+
 	if *lcdEnabled {
-		go lcd.Updater(ctx)
+		waitGroupGo(func() { lcd.Updater(ctx) })
 	}
 	if *piOLEDEnabled {
-		go pioled.Updater(ctx, *piOLEDRefreshDelay)
+		waitGroupGo(func() { pioled.Updater(ctx, *piOLEDRefreshDelay) })
 	}
 
 	select {
 	case <-interrupted:
 		cancel()
 	}
+
+	wg.Wait()
 }
 
 func dhtUpdater(ctx context.Context) {

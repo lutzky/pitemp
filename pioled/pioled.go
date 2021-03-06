@@ -36,6 +36,9 @@ func HTTPResponse(w http.ResponseWriter, _ *http.Request) {
 var dev *ssd1306.Dev
 var busCloser i2c.BusCloser
 
+// ClearDisplay determines if display should be cleared when exiting
+var ClearDisplay = true
+
 // Initialize initializes the pioled hardware
 func Initialize() error {
 	if _, err := host.Init(); err != nil {
@@ -154,5 +157,11 @@ func Updater(ctx context.Context, interval time.Duration) {
 }
 
 func cleanup() {
+	if ClearDisplay {
+		img := image1bit.NewVerticalLSB(dev.Bounds())
+		if err := dev.Draw(dev.Bounds(), img, image.Point{}); err != nil {
+			log.Printf("ERROR: Failed to clear display: %v", err)
+		}
+	}
 	busCloser.Close()
 }
