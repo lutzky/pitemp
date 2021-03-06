@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"html/template"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,57 +18,26 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/lutzky/pitemp/lcd"
 	"github.com/lutzky/pitemp/pioled"
 	"github.com/lutzky/pitemp/state"
-
-	// For HD44780 LCD
-	"github.com/d2r2/go-hd44780"
-	"github.com/d2r2/go-i2c"
 )
 
 var (
-	ipIface      = flag.String("ip_iface", "wlan0", "Network interface for IP address")
-	message      = flag.String("message", "^_^ LCD ACTIVE ^_^", "Message to display")
-	backlightOff = flag.Bool("backlight_off_when_done", true, "Turn backlight off when done")
-	quitAfter    = flag.Duration("quit_after", 0, "Automatically quit after this many seconds (0 for never)")
+	ipIface   = flag.String("ip_iface", "wlan0", "Network interface for IP address")
+	quitAfter = flag.Duration("quit_after", 0, "Automatically quit after this many seconds (0 for never)")
 
 	dhtDelay   = flag.Duration("dht11_delay", time.Minute, "Frequency of DHT11 measurement")
 	dhtPin     = flag.Int("dht11_pin", 4, "GPIO pin to which DHT11 data pin is connected")
 	dhtRetries = flag.Int("dht11_retries", 10, "Retries for DHT11")
 
-	lcdEnabled      = flag.Bool("lcd_enabled", false, "Whether or not to use an HD44780 LCD")
-	lcdDegreeSymbol = flag.Int("lcd_degree_symbol", LCDDegreeSymbol, "Character code for degree symbol for LCD")
-	lcdRefreshDelay = flag.Duration("lcd_refresh_delay", 2*time.Second, "How often to refresh LCD display")
+	lcdEnabled = flag.Bool("lcd_enabled", false, "Whether or not to use an HD44780 LCD")
 
 	piOLEDEnabled      = flag.Bool("pioled_enabled", true, "Whether or not to use a PiOLED display")
 	piOLEDRefreshDelay = flag.Duration("pioled_refresh_delay", 500*time.Millisecond, "How often to refresh PiOLED Display")
 
 	flagPort = flag.Int("port", 8080, "HTTP listening port")
 )
-
-// LCDDegreeSymbol is the character code used for displaying the degrees
-// symbol (normally "°"). We're using the Japanese handakuten (゜).
-const LCDDegreeSymbol = 0xdf
-
-func getIP(iface string) (string, error) {
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return "", fmt.Errorf("failed to get interfaces: %w", err)
-	}
-	for _, i := range ifaces {
-		if i.Name != iface {
-			continue
-		}
-		addrs, err := i.Addrs()
-		if err != nil {
-			return "", fmt.Errorf("failed to get addrs for %q: %w", iface, err)
-		}
-		for _, addr := range addrs {
-			return addr.String(), nil
-		}
-	}
-	return "", fmt.Errorf("interface %q not found", iface)
-}
 
 var (
 	tempGauge = prometheus.NewGauge(prometheus.GaugeOpts{
@@ -115,24 +83,11 @@ func main() {
 	http.Handle("/metrics", promhttp.Handler())
 	go http.ListenAndServe(fmt.Sprintf(":%d", *flagPort), nil)
 
-	check := func(err error) {
-		if err != nil {
+	if *lcdEnabled {
+		lcd.IPIface = *ipIface
+		if err := lcd.Initialize(); err != nil {
 			log.Fatal(err)
 		}
-	}
-
-	var lcd *hd44780.Lcd
-
-	if *lcdEnabled {
-		i2c, err := i2c.NewI2C(0x27, 1)
-		check(err)
-		defer i2c.Close()
-
-		lcd, err = hd44780.NewLcd(i2c, hd44780.LCD_20x4)
-		check(err)
-
-		err = lcd.BacklightOn()
-		check(err)
 	}
 
 	if *piOLEDEnabled {
@@ -152,7 +107,9 @@ func main() {
 	}
 
 	go dhtUpdater(ctx)
-	go lcdUpdater(ctx, lcd)
+	if *lcdEnabled {
+		go lcd.Updater(ctx)
+	}
 	if *piOLEDEnabled {
 		go pioled.Updater(ctx, *piOLEDRefreshDelay)
 	}
@@ -160,69 +117,6 @@ func main() {
 	select {
 	case <-interrupted:
 		cancel()
-	}
-
-	if *lcdEnabled && *backlightOff {
-		err := lcd.BacklightOff()
-		check(err)
-	}
-}
-
-func lcdUpdater(ctx context.Context, lcd *hd44780.Lcd) {
-	if lcd == nil {
-		return
-	}
-
-	for {
-		var err error
-
-		s := state.Get()
-
-		if !s.LastSensorUpdate.IsZero() {
-			*message = fmt.Sprintf("Freshness: %s",
-				time.Now().Sub(s.LastSensorUpdate).Round(time.Second))
-		}
-
-		err = lcd.ShowMessage(*message, hd44780.SHOW_LINE_1|hd44780.SHOW_BLANK_PADDING)
-		if err != nil {
-			log.Printf("Failed to show message: %v\n", err)
-		}
-
-		ipaddr, err := getIP(*ipIface)
-		if err != nil {
-			ipaddr = err.Error()
-		}
-
-		err = lcd.ShowMessage(ipaddr, hd44780.SHOW_LINE_2|hd44780.SHOW_BLANK_PADDING)
-		if err != nil {
-			log.Printf("Failed to show IP Address: %v\n", err)
-		}
-
-		dhtMessage := "[waiting for dht11]"
-		if !s.LastSensorUpdate.IsZero() {
-			dhtMessage = fmt.Sprintf("%.0f%cC, %.0f%% humid",
-				s.Temperature, *lcdDegreeSymbol, s.Humidity)
-		}
-		err = lcd.ShowMessage(dhtMessage, hd44780.SHOW_LINE_3|hd44780.SHOW_BLANK_PADDING)
-		if err != nil {
-			log.Printf("Failed to show temperature: %v\n", err)
-		}
-
-		timeMessage := time.Now().Local().Format("Mon Jan 2 15:04:05")
-		err = lcd.ShowMessage(timeMessage, hd44780.SHOW_LINE_4|hd44780.SHOW_BLANK_PADDING)
-		if err != nil {
-			log.Printf("Failed to show time: %v\n", err)
-		}
-
-		{
-			t := time.NewTimer(*lcdRefreshDelay)
-			defer t.Stop()
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-			}
-		}
 	}
 }
 
