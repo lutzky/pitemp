@@ -36,8 +36,13 @@ func HTTPResponse(w http.ResponseWriter, _ *http.Request) {
 var dev *ssd1306.Dev
 var busCloser i2c.BusCloser
 
-// ClearDisplay determines if display should be cleared when exiting
-var ClearDisplay = true
+var (
+	// ClearDisplay determines if display should be cleared when exiting
+	ClearDisplay = true
+
+	// UpdateInterval controls how fast the display is updated
+	UpdateInterval = 500 * time.Millisecond
+)
 
 // Initialize initializes the pioled hardware
 func Initialize() error {
@@ -139,12 +144,12 @@ func render(dst draw.Image, color color.Color) {
 
 // Updater will update the display every interval, until the context is
 // cancelled.
-func Updater(ctx context.Context, interval time.Duration) {
+func Updater(ctx context.Context) {
 	for {
 		display()
 
 		{
-			t := time.NewTimer(interval)
+			t := time.NewTimer(UpdateInterval)
 			defer t.Stop()
 			select {
 			case <-ctx.Done():

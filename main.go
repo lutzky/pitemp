@@ -32,10 +32,8 @@ var (
 	dhtPin     = flag.Int("dht11_pin", 4, "GPIO pin to which DHT11 data pin is connected")
 	dhtRetries = flag.Int("dht11_retries", 10, "Retries for DHT11")
 
-	lcdEnabled = flag.Bool("lcd_enabled", false, "Whether or not to use an HD44780 LCD")
-
-	piOLEDEnabled      = flag.Bool("pioled_enabled", true, "Whether or not to use a PiOLED display")
-	piOLEDRefreshDelay = flag.Duration("pioled_refresh_delay", 500*time.Millisecond, "How often to refresh PiOLED Display")
+	lcdEnabled    = flag.Bool("lcd_enabled", false, "Whether or not to use an HD44780 LCD")
+	piOLEDEnabled = flag.Bool("pioled_enabled", true, "Whether or not to use a PiOLED display")
 
 	flagPort = flag.Int("port", 8080, "HTTP listening port")
 )
@@ -123,7 +121,7 @@ func main() {
 		waitGroupGo(func() { lcd.Updater(ctx) })
 	}
 	if *piOLEDEnabled {
-		waitGroupGo(func() { pioled.Updater(ctx, *piOLEDRefreshDelay) })
+		waitGroupGo(func() { pioled.Updater(ctx) })
 	}
 
 	select {
