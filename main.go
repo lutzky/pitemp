@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"html/template"
@@ -67,6 +68,15 @@ var httpTemplate = template.Must(template.New("root").Parse(httpTemplateText))
 func serveHTTP(w http.ResponseWriter, r *http.Request) {
 	err := httpTemplate.Execute(w, state.Get())
 	if err != nil {
+		log.Printf("Error executing HTTP template: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func serveJSON(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(state.Get()); err != nil {
+		log.Printf("Error encoding JSON: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -78,6 +88,7 @@ func main() {
 	logger.ChangePackageLogLevel("dht", logger.InfoLevel)
 
 	http.HandleFunc("/", serveHTTP)
+	http.HandleFunc("/api", serveJSON)
 	http.HandleFunc("/pioled", pioled.HTTPResponse)
 	http.Handle("/metrics", promhttp.Handler())
 	go http.ListenAndServe(fmt.Sprintf(":%d", *flagPort), nil)
