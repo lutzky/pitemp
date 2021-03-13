@@ -3,7 +3,7 @@
 On build machine:
 
 ```
-find | entr -c -s "./build.sh && scp build/main.arm TARGET-MACHINE:pitemp.new"
+find | entr -c -s "./build.sh && scp build/pitemp.arm TARGET-MACHINE:pitemp.new"
 ```
 
 On pi, after first build:
