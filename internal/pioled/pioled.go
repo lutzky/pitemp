@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/lutzky/pitemp/state"
+	"github.com/lutzky/pitemp/internal/state"
 
 	"github.com/golang/freetype/truetype"
 	"golang.org/x/image/font"

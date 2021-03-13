@@ -9,7 +9,7 @@ import (
 
 	"github.com/d2r2/go-hd44780"
 	"github.com/d2r2/go-i2c"
-	"github.com/lutzky/pitemp/state"
+	"github.com/lutzky/pitemp/internal/state"
 )
 
 var i2cCloser *i2c.I2C

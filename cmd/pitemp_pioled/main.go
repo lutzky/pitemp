@@ -13,8 +13,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/lutzky/pitemp/pioled"
-	"github.com/lutzky/pitemp/state"
+	"github.com/lutzky/pitemp/internal/pioled"
+	"github.com/lutzky/pitemp/internal/state"
 )
 
 var (

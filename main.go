@@ -20,9 +20,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/lutzky/pitemp/lcd"
-	"github.com/lutzky/pitemp/pioled"
-	"github.com/lutzky/pitemp/state"
+	"github.com/lutzky/pitemp/internal/lcd"
+	"github.com/lutzky/pitemp/internal/pioled"
+	"github.com/lutzky/pitemp/internal/state"
 )
 
 var (
