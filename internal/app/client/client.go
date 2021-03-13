@@ -11,31 +11,21 @@ import (
 	"time"
 
 	"github.com/lutzky/pitemp/internal/state"
+	"github.com/lutzky/pitemp/internal/sync"
 )
 
-func repeatUntilCancelled(ctx context.Context, f func(), interval time.Duration) {
-	for {
-		f()
-		{
-			t := time.NewTimer(interval)
-			defer t.Stop()
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-			}
-		}
-	}
-}
-
+// Run runs a client fetching state from server every fetchInterval, running
+// update every updateInterval. It does so until the context is externally
+// cancelled, or until receiving SIGTERM or SIGINT, which also cancels the
+// context.
 func Run(ctx context.Context, server string, updater func(), fetchInterval, updateInterval time.Duration) {
 	ctx, cancel := context.WithCancel(ctx)
 
 	interrupted := make(chan os.Signal, 1)
 	signal.Notify(interrupted, syscall.SIGTERM, syscall.SIGINT)
 
-	go repeatUntilCancelled(ctx, func() { fetchState(server) }, fetchInterval)
-	go repeatUntilCancelled(ctx, updater, updateInterval)
+	go sync.RepeatUntilCancelled(ctx, func() { fetchState(server) }, fetchInterval)
+	go sync.RepeatUntilCancelled(ctx, updater, updateInterval)
 
 	<-interrupted
 	cancel()

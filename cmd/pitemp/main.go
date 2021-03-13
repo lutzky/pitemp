@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -20,21 +19,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/lutzky/pitemp/internal/lcd"
-	"github.com/lutzky/pitemp/internal/pioled"
 	"github.com/lutzky/pitemp/internal/state"
+	"github.com/lutzky/pitemp/internal/sync"
 )
 
 var (
-	ipIface   = flag.String("ip_iface", "wlan0", "Network interface for IP address")
-	quitAfter = flag.Duration("quit_after", 0, "Automatically quit after this many seconds (0 for never)")
-
 	dhtDelay   = flag.Duration("dht11_delay", time.Minute, "Frequency of DHT11 measurement")
 	dhtPin     = flag.Int("dht11_pin", 4, "GPIO pin to which DHT11 data pin is connected")
 	dhtRetries = flag.Int("dht11_retries", 10, "Retries for DHT11")
-
-	lcdEnabled    = flag.Bool("lcd_enabled", false, "Whether or not to use an HD44780 LCD")
-	piOLEDEnabled = flag.Bool("pioled_enabled", true, "Whether or not to use a PiOLED display")
 
 	flagPort = flag.Int("port", 8080, "HTTP listening port")
 )
@@ -89,85 +81,33 @@ func main() {
 
 	http.HandleFunc("/", serveHTTP)
 	http.HandleFunc("/api", serveJSON)
-	http.HandleFunc("/pioled", pioled.HTTPResponse)
 	http.Handle("/metrics", promhttp.Handler())
 	go http.ListenAndServe(fmt.Sprintf(":%d", *flagPort), nil)
-
-	if *lcdEnabled {
-		lcd.IPIface = *ipIface
-		if err := lcd.Initialize(); err != nil {
-			log.Fatal(err)
-		}
-	}
-
-	if *piOLEDEnabled {
-		pioled.Initialize()
-	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	interrupted := make(chan os.Signal, 1)
 	signal.Notify(interrupted, syscall.SIGTERM, syscall.SIGINT)
 
-	if *quitAfter > 0 {
-		go func() {
-			time.Sleep(*quitAfter)
-			interrupted <- syscall.SIGINT
-		}()
-	}
+	sync.RepeatUntilCancelled(ctx, dhtUpdater, *dhtDelay)
 
-	var wg sync.WaitGroup
-
-	waitGroupGo := func(f func()) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			f()
-		}()
-	}
-
-	waitGroupGo(func() { dhtUpdater(ctx) })
-
-	if *lcdEnabled {
-		waitGroupGo(func() { lcd.Updater(ctx) })
-	}
-	if *piOLEDEnabled {
-		waitGroupGo(func() { pioled.Updater(ctx) })
-	}
-
-	select {
-	case <-interrupted:
-		cancel()
-	}
-
-	wg.Wait()
+	<-interrupted
+	cancel()
 }
 
-func dhtUpdater(ctx context.Context) {
-	for {
-		temperature, humidity, _, err := dht.ReadDHTxxWithRetry(dht.DHT11, *dhtPin, false, *dhtRetries)
-		if err != nil {
-			log.Printf("Failed to read DHT11: %v", err)
-		} else {
-			state.Set(&state.State{
-				Temperature:      temperature,
-				Humidity:         humidity,
-				LastSensorUpdate: time.Now(),
-			})
+func dhtUpdater() {
+	temperature, humidity, _, err := dht.ReadDHTxxWithRetry(dht.DHT11, *dhtPin, false, *dhtRetries)
+	if err != nil {
+		log.Printf("Failed to read DHT11: %v", err)
+	} else {
+		state.Set(&state.State{
+			Temperature:      temperature,
+			Humidity:         humidity,
+			LastSensorUpdate: time.Now(),
+		})
 
-			tempGauge.Set(float64(temperature))
-			humidityGauge.Set(float64(humidity))
-			lastUpdateGauge.Set(float64(time.Now().Unix()))
-		}
-
-		{
-			t := time.NewTimer(*dhtDelay)
-			defer t.Stop()
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-			}
-		}
+		tempGauge.Set(float64(temperature))
+		humidityGauge.Set(float64(humidity))
+		lastUpdateGauge.Set(float64(time.Now().Unix()))
 	}
 }

@@ -1,7 +1,6 @@
 package lcd
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net"
@@ -20,12 +19,6 @@ const DegreeSymbol = 0xdf
 
 // IPIface determines which interface (if any) the IP address will be read from
 var IPIface string
-
-// RefreshDelay controls how often the LCD is refreshed
-var RefreshDelay = 2 * time.Second
-
-// BacklightOff determines if the backlight should be turned off when done
-var BacklightOff = true
 
 var lcd *hd44780.Lcd
 
@@ -50,6 +43,7 @@ func Initialize() error {
 	return nil
 }
 
+// Display updates the LCD with the latest state
 func Display() {
 	var err error
 
@@ -96,23 +90,6 @@ func Display() {
 	}
 }
 
-func Updater(ctx context.Context) {
-	for {
-		Display()
-
-		{
-			t := time.NewTimer(RefreshDelay)
-			defer t.Stop()
-			select {
-			case <-ctx.Done():
-				Cleanup()
-				return
-			case <-t.C:
-			}
-		}
-	}
-}
-
 func getIP(iface string) (string, error) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -133,6 +110,7 @@ func getIP(iface string) (string, error) {
 	return "", fmt.Errorf("interface %q not found", iface)
 }
 
+// Cleanup turns off the backlight and closes the i2c channel
 func Cleanup() {
 	if err := lcd.BacklightOff(); err != nil {
 		log.Printf("ERROR: Failed to turn off backlight: %v", err)

@@ -1,7 +1,6 @@
 package pioled
 
 import (
-	"context"
 	_ "embed" // For embedding font TTF file
 	"fmt"
 	"image"
@@ -39,9 +38,6 @@ var busCloser i2c.BusCloser
 var (
 	// ClearDisplay determines if display should be cleared when exiting
 	ClearDisplay = true
-
-	// UpdateInterval controls how fast the display is updated
-	UpdateInterval = 500 * time.Millisecond
 
 	// StaleTime indicates how stale the state has to be for a warning to be shown
 	StaleTime = 3 * time.Minute
@@ -146,25 +142,6 @@ func render(dst draw.Image, color color.Color) {
 		y := dst.Bounds().Max.Y - drawer.Face.Metrics().Ascent.Ceil() - 1
 		for x := dst.Bounds().Min.X; x < dst.Bounds().Max.X; x++ {
 			dst.Set(x, y, color)
-		}
-	}
-}
-
-// Updater will update the display every interval, until the context is
-// cancelled.
-func Updater(ctx context.Context) {
-	for {
-		Display()
-
-		{
-			t := time.NewTimer(UpdateInterval)
-			defer t.Stop()
-			select {
-			case <-ctx.Done():
-				Cleanup()
-				return
-			case <-t.C:
-			}
 		}
 	}
 }
