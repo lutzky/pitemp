@@ -125,7 +125,7 @@ func render(dst draw.Image, color color.Color) {
 			fmt.Sprintf("Humid: %.0f%%", s.Humidity),
 		}
 
-		if time.Now().Sub(s.LastSensorUpdate) > StaleTime {
+		if time.Since(s.LastSensorUpdate) > StaleTime {
 			lines[0] += " STALE!"
 		}
 	}
