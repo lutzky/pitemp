@@ -18,6 +18,8 @@ var (
 	port           = flag.Int("port", 8081, "HTTP Serving port")
 	fetchInterval  = flag.Duration("fetch_interval", 1*time.Minute, "How often to poll the API server")
 	updateInterval = flag.Duration("update_interval", 500*time.Millisecond, "How often to update the screen")
+
+	simulatorMode = flag.Bool("simulator", false, "Simulator mode - do not contact PiOLED hardware")
 )
 
 func main() {
@@ -28,11 +30,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := pioled.Initialize(); err != nil {
-		log.Printf("Failed to initialize pioled: %v", err)
-		os.Exit(1)
+	displayFunc := func() {}
+
+	if !*simulatorMode {
+		if err := pioled.Initialize(); err != nil {
+			log.Printf("Failed to initialize pioled: %v", err)
+			os.Exit(1)
+		}
+		defer pioled.Cleanup()
+
+		displayFunc = pioled.Display
 	}
-	defer pioled.Cleanup()
 
 	http.HandleFunc("/", pioled.HTTPResponse)
 	srv := http.Server{Addr: fmt.Sprintf(":%d", *port)}
@@ -42,6 +50,6 @@ func main() {
 	log.Print("Starting client")
 	client.Run(
 		context.Background(),
-		*server, pioled.Display,
+		*server, displayFunc,
 		*fetchInterval, *updateInterval)
 }
