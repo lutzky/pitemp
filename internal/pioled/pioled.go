@@ -72,7 +72,8 @@ func Initialize() error {
 	return nil
 }
 
-func display() {
+// Display updates the display according to current state
+func Display() {
 	if dev == nil {
 		log.Print("WARNING: display() called while dev=nil")
 		return
@@ -153,14 +154,14 @@ func render(dst draw.Image, color color.Color) {
 // cancelled.
 func Updater(ctx context.Context) {
 	for {
-		display()
+		Display()
 
 		{
 			t := time.NewTimer(UpdateInterval)
 			defer t.Stop()
 			select {
 			case <-ctx.Done():
-				cleanup()
+				Cleanup()
 				return
 			case <-t.C:
 			}
@@ -168,7 +169,9 @@ func Updater(ctx context.Context) {
 	}
 }
 
-func cleanup() {
+// Cleanup clears the display (if ClearDisplay is true) and closes the i2c bus
+func Cleanup() {
+	log.Print("Cleaning up pioled")
 	if ClearDisplay {
 		img := image1bit.NewVerticalLSB(dev.Bounds())
 		if err := dev.Draw(dev.Bounds(), img, image.Point{}); err != nil {
