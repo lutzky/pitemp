@@ -50,58 +50,62 @@ func Initialize() error {
 	return nil
 }
 
+func Display() {
+	var err error
+
+	s := state.Get()
+
+	message := "[LCD live]"
+
+	if !s.LastSensorUpdate.IsZero() {
+		message = fmt.Sprintf("Freshness: %s",
+			time.Since(s.LastSensorUpdate).Round(time.Second))
+	}
+
+	err = lcd.ShowMessage(message, hd44780.SHOW_LINE_1|hd44780.SHOW_BLANK_PADDING)
+	if err != nil {
+		log.Printf("Failed to show message: %v\n", err)
+	}
+
+	if IPIface != "" {
+		ipaddr, err := getIP(IPIface)
+		if err != nil {
+			ipaddr = err.Error()
+		}
+
+		err = lcd.ShowMessage(ipaddr, hd44780.SHOW_LINE_2|hd44780.SHOW_BLANK_PADDING)
+		if err != nil {
+			log.Printf("Failed to show IP Address: %v\n", err)
+		}
+	}
+
+	dhtMessage := "[waiting for dht11]"
+	if !s.LastSensorUpdate.IsZero() {
+		dhtMessage = fmt.Sprintf("%.0f%cC, %.0f%% humid",
+			s.Temperature, DegreeSymbol, s.Humidity)
+	}
+	err = lcd.ShowMessage(dhtMessage, hd44780.SHOW_LINE_3|hd44780.SHOW_BLANK_PADDING)
+	if err != nil {
+		log.Printf("Failed to show temperature: %v\n", err)
+	}
+
+	timeMessage := time.Now().Local().Format("Mon Jan 2 15:04:05")
+	err = lcd.ShowMessage(timeMessage, hd44780.SHOW_LINE_4|hd44780.SHOW_BLANK_PADDING)
+	if err != nil {
+		log.Printf("Failed to show time: %v\n", err)
+	}
+}
+
 func Updater(ctx context.Context) {
 	for {
-		var err error
-
-		s := state.Get()
-
-		message := "[LCD live]"
-
-		if !s.LastSensorUpdate.IsZero() {
-			message = fmt.Sprintf("Freshness: %s",
-				time.Now().Sub(s.LastSensorUpdate).Round(time.Second))
-		}
-
-		err = lcd.ShowMessage(message, hd44780.SHOW_LINE_1|hd44780.SHOW_BLANK_PADDING)
-		if err != nil {
-			log.Printf("Failed to show message: %v\n", err)
-		}
-
-		if IPIface != "" {
-			ipaddr, err := getIP(IPIface)
-			if err != nil {
-				ipaddr = err.Error()
-			}
-
-			err = lcd.ShowMessage(ipaddr, hd44780.SHOW_LINE_2|hd44780.SHOW_BLANK_PADDING)
-			if err != nil {
-				log.Printf("Failed to show IP Address: %v\n", err)
-			}
-		}
-
-		dhtMessage := "[waiting for dht11]"
-		if !s.LastSensorUpdate.IsZero() {
-			dhtMessage = fmt.Sprintf("%.0f%cC, %.0f%% humid",
-				s.Temperature, DegreeSymbol, s.Humidity)
-		}
-		err = lcd.ShowMessage(dhtMessage, hd44780.SHOW_LINE_3|hd44780.SHOW_BLANK_PADDING)
-		if err != nil {
-			log.Printf("Failed to show temperature: %v\n", err)
-		}
-
-		timeMessage := time.Now().Local().Format("Mon Jan 2 15:04:05")
-		err = lcd.ShowMessage(timeMessage, hd44780.SHOW_LINE_4|hd44780.SHOW_BLANK_PADDING)
-		if err != nil {
-			log.Printf("Failed to show time: %v\n", err)
-		}
+		Display()
 
 		{
 			t := time.NewTimer(RefreshDelay)
 			defer t.Stop()
 			select {
 			case <-ctx.Done():
-				cleanup()
+				Cleanup()
 				return
 			case <-t.C:
 			}
@@ -129,7 +133,7 @@ func getIP(iface string) (string, error) {
 	return "", fmt.Errorf("interface %q not found", iface)
 }
 
-func cleanup() {
+func Cleanup() {
 	if err := lcd.BacklightOff(); err != nil {
 		log.Printf("ERROR: Failed to turn off backlight: %v", err)
 	}
