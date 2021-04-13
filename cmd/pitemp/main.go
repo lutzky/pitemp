@@ -79,24 +79,32 @@ func main() {
 	logger.ChangePackageLogLevel("i2c", logger.InfoLevel)
 	logger.ChangePackageLogLevel("dht", logger.InfoLevel)
 
+	srv := &http.Server{Addr: fmt.Sprintf(":%d", *flagPort)}
 	http.HandleFunc("/", serveHTTP)
 	http.HandleFunc("/api", serveJSON)
 	http.Handle("/metrics", promhttp.Handler())
-	go http.ListenAndServe(fmt.Sprintf(":%d", *flagPort), nil)
+	go srv.ListenAndServe()
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	interrupted := make(chan os.Signal, 1)
 	signal.Notify(interrupted, syscall.SIGTERM, syscall.SIGINT)
 
-	sync.RepeatUntilCancelled(ctx, dhtUpdater, *dhtDelay)
+	go func() {
+		<-interrupted
+		cancel()
+	}()
 
-	<-interrupted
-	cancel()
+	sync.RepeatUntilCancelled(ctx, func() { dhtUpdater(ctx) }, *dhtDelay)
+
+	if err := srv.Shutdown(context.Background()); err != nil {
+		log.Println("Failed to cleanly shut down HTTP server")
+		panic(err)
+	}
 }
 
-func dhtUpdater() {
-	temperature, humidity, _, err := dht.ReadDHTxxWithRetry(dht.DHT11, *dhtPin, false, *dhtRetries)
+func dhtUpdater(ctx context.Context) {
+	temperature, humidity, _, err := dht.ReadDHTxxWithContextAndRetry(ctx, dht.DHT11, *dhtPin, false, *dhtRetries)
 	if err != nil {
 		log.Printf("Failed to read DHT11: %v", err)
 	} else {
